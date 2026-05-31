@@ -1,0 +1,84 @@
+{
+    "name": "daacreators/pennant-manager",
+    "description": "A Filament plugin for managing Laravel Pennant feature flags",
+    "keywords": [
+        "Jabir Khan",
+        "laravel",
+        "filamentphp",
+        "filament",
+        "filament-plugin",
+        "pennant-manager"
+    ],
+    "homepage": "https://github.com/jabirmayar/pennant-manager",
+    "support": {
+        "issues": "https://github.com/jabirmayar/pennant-manager/issues",
+        "source": "https://github.com/jabirmayar/pennant-manager"
+    },
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Jabir Khan",
+            "email": "hello@jabirkhan.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "filament/filament": "^4.0|^5.0",
+        "illuminate/contracts": "^11.0|^12.0",
+        "laravel/pennant": "^1.0|^2.0",
+        "spatie/laravel-package-tools": "^1.16"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.0",
+        "laravel/pint": "^1.0",
+        "nunomaduro/collision": "^8.0",
+        "orchestra/testbench": "^9.0|^10.0|^11.0",
+        "pestphp/pest": "^3.7|^4.0",
+        "pestphp/pest-plugin-arch": "^3.0|^4.0",
+        "pestphp/pest-plugin-laravel": "^3.0|^4.0",
+        "pestphp/pest-plugin-livewire": "^3.0|^4.0",
+        "rector/rector": "^2.0",
+        "spatie/laravel-ray": "^1.26"
+    },
+    "autoload": {
+        "psr-4": {
+            "daacreators\\PennantManager\\": "src/",
+            "daacreators\\PennantManager\\Database\\Factories\\": "database/factories/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "daacreators\\PennantManager\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": "@php ./vendor/bin/testbench package:discover --ansi",
+        "analyse": "phpstan analyse",
+        "lint": "pint",
+        "refactor": "rector",
+        "test": "pest",
+        "test:lint": "pint --test",
+        "test:refactor": "rector --dry-run"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "daacreators\\PennantManager\\PennantManagerServiceProvider"
+            ],
+            "aliases": {
+                "PennantManager": "daacreators\\PennantManager\\Facades\\PennantManager"
+            }
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "composer/package-versions-deprecated": true,
+            "pestphp/pest-plugin": true,
+            "phpstan/extension-installer": true
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
