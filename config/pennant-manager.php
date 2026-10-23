@@ -1,7 +1,17 @@
 <?php
 
+use App\Models\User;
+
 return [
     'navigation_group' => 'Settings',
+
+    // The existing database-backed behavior remains the default.
+    // Set this to a named Pennant database store to use its table and connection.
+    'store' => 'database',
+
+    // Opt in to helper fallback for scopes without an explicit override.
+    // False preserves the resolution behavior of existing installations.
+    'inherit_global' => false,
 
     /*
     |--------------------------------------------------------------------------
@@ -12,9 +22,9 @@ return [
     */
     'scope_models' => [
         'User' => [
-            'model'         => \App\Models\User::class,
+            'model' => User::class,
             'search_column' => 'email',
-            'label_column'  => 'name',   // optional — what shows in the list
+            'label_column' => 'name',   // optional — what shows in the list
         ],
         // 'Team' => [
         //     'model'         => \App\Models\Team::class,

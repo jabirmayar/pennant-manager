@@ -5,6 +5,8 @@ namespace daacreators\PennantManager\Resources;
 use BackedEnum;
 use daacreators\PennantManager\Models\Feature;
 use daacreators\PennantManager\Resources\FeatureResource\Pages;
+use daacreators\PennantManager\Services\ScopeRollout;
+use daacreators\PennantManager\Support\FeatureStorage;
 use daacreators\PennantManager\Support\FeatureValue;
 use daacreators\PennantManager\Support\ScopeConfig;
 use Filament\Actions\Action;
@@ -19,14 +21,13 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Laravel\Pennant\Feature as PennantFeature;
 
 class FeatureResource extends Resource
 {
     protected static ?string $model = Feature::class;
-    protected static BackedEnum|string|null $navigationIcon = 'heroicon-o-flag';
+
+    protected static BackedEnum | string | null $navigationIcon = 'heroicon-o-flag';
 
     public static function getNavigationLabel(): string
     {
@@ -35,7 +36,8 @@ class FeatureResource extends Resource
 
     public static function canAccess(): bool
     {
-        return Schema::hasTable('features');
+        return FeatureStorage::connection()->getSchemaBuilder()
+            ->hasTable(FeatureStorage::table()) && parent::canAccess();
     }
 
     public static function getNavigationGroup(): ?string
@@ -59,9 +61,9 @@ class FeatureResource extends Resource
                     ->weight('bold'),
 
                 TextColumn::make('specific_scopes')
-                    ->label('Active Overrides')
+                    ->label('Scoped Overrides')
                     ->getStateUsing(function ($record) {
-                        return DB::table('features')
+                        return FeatureStorage::query()
                             ->where('name', $record->name)
                             ->where('scope', '!=', '__laravel_null')
                             ->count();
@@ -74,6 +76,7 @@ class FeatureResource extends Resource
                     ->label('Rollout')
                     ->getStateUsing(function ($record) {
                         $data = FeatureValue::decode((string) $record->value);
+
                         return isset($data['percentage']) ? $data['percentage'] . '%' : null;
                     })
                     ->badge()
@@ -84,15 +87,16 @@ class FeatureResource extends Resource
                     ->label('Global Active')
                     ->getStateUsing(fn ($record) => FeatureValue::isActive((string) $record->value))
                     ->updateStateUsing(function ($record, bool $state) {
+                        abort_unless(static::canEdit($record), 403);
                         $current = FeatureValue::decode((string) $record->value);
                         $current['enabled'] = $state;
 
-                        DB::table('features')
+                        FeatureStorage::query()
                             ->where('id', $record->id)
                             ->update(['value' => json_encode($current), 'updated_at' => now()]);
 
                         PennantFeature::flushCache();
-                    })
+                    }),
             ])
             ->actions([
                 Action::make('manageScopes')
@@ -102,156 +106,128 @@ class FeatureResource extends Resource
                     ->url(fn ($record) => FeatureResource::getUrl('scopes', ['record' => $record->id])),
 
                 Action::make('settings')
-                ->label('Settings')
-                ->icon('heroicon-o-cog-6-tooth')
-                ->color('gray')
-                ->fillForm(function ($record) {
-                    $data = FeatureValue::decode($record->getRawOriginal('value') ?? 'false');
-                    return [
-                        'activate_at' => $data['activate_at'] ?? null,
-                        'rich_value'  => $data['rich_value'] ?? null,
-                        'percentage'  => $data['percentage'] ?? null,
-                        'scope_type'  => $data['scope_type'] ?? null
-                    ];
-                })
-                ->form([
-                    Section::make('Schedule')
-                        ->description('Automatically activate this feature at a specific date and time.')
-                        ->icon('heroicon-o-clock')
-                        ->collapsible()
-                        ->collapsed()
-                        ->schema([
-                            DateTimePicker::make('activate_at')
-                                ->label('Activate at')
-                                ->nullable(),
-                        ]),
+                    ->authorize(fn ($record) => static::canEdit($record))
+                    ->label('Settings')
+                    ->icon('heroicon-o-cog-6-tooth')
+                    ->color('gray')
+                    ->fillForm(function ($record) {
+                        $data = FeatureValue::decode($record->getRawOriginal('value') ?? 'false');
 
-                    Section::make('Variant Value')
-                        ->description('Return a custom value instead of true/false - read with Feature::value(\'name\').')
-                        ->icon('heroicon-o-swatch')
-                        ->collapsible()
-                        ->collapsed()
-                        ->schema([
-                        TextInput::make('rich_value')
-                                ->label('Value')
-                                ->placeholder('e.g. beta, v2, dark-theme')
-                                ->nullable(),
-                        ]),
+                        return [
+                            'activate_at' => $data['activate_at'] ?? null,
+                            'rich_value' => $data['rich_value'] ?? null,
+                            'percentage' => $data['percentage'] ?? null,
+                            'scope_type' => $data['scope_type'] ?? null,
+                        ];
+                    })
+                    ->form([
+                        Section::make('Schedule')
+                            ->description('Automatically activate this feature at a specific date and time.')
+                            ->icon('heroicon-o-clock')
+                            ->collapsible()
+                            ->collapsed()
+                            ->schema([
+                                DateTimePicker::make('activate_at')
+                                    ->label('Activate at')
+                                    ->nullable(),
+                            ]),
 
-                    Section::make('Percentage Rollout')
-                                ->description('Randomly activate for a percentage of users.')
-                                ->icon('heroicon-o-adjustments-horizontal')
-                                ->collapsible()
-                                ->collapsed()
-                                ->schema([
-                                    Select::make('scope_type')
-                                        ->label('Model')
-                                        ->options(fn () => ScopeConfig::modelOptions())
-                                        ->nullable(),
+                        Section::make('Variant Value')
+                            ->description('Return a custom value instead of true/false - read with Feature::value(\'name\').')
+                            ->icon('heroicon-o-swatch')
+                            ->collapsible()
+                            ->collapsed()
+                            ->schema([
+                                TextInput::make('rich_value')
+                                    ->label('Value')
+                                    ->placeholder('e.g. beta, v2, dark-theme')
+                                    ->nullable(),
+                            ]),
 
-                                    TextInput::make('percentage')
-                                        ->label('Percentage')
-                                        ->numeric()
-                                        ->suffix('%')
-                                        ->minValue(1)
-                                        ->maxValue(100)
-                                        ->nullable(),
+                        Section::make('Percentage Rollout')
+                            ->description('Randomly activate for a percentage of users.')
+                            ->icon('heroicon-o-adjustments-horizontal')
+                            ->collapsible()
+                            ->collapsed()
+                            ->schema([
+                                Select::make('scope_type')
+                                    ->label('Model')
+                                    ->options(fn () => ScopeConfig::modelOptions())
+                                    ->nullable(),
 
-                                    Toggle::make('rollout_now')
-                                            ->label('Apply immediately')
-                                            ->helperText('Turn off to apply the rollout when the scheduled date arrives instead.')
-                                            ->default(true),
-                                ]),
-                ])
-                ->action(function ($record, array $data) {
-                    $current = FeatureValue::decode($record->getRawOriginal('value') ?? 'false');
+                                TextInput::make('percentage')
+                                    ->label('Percentage')
+                                    ->numeric()
+                                    ->suffix('%')
+                                    ->minValue(1)
+                                    ->maxValue(100)
+                                    ->nullable(),
 
-                    // Schedule
-                    if (empty($data['activate_at'])) {
-                        unset($current['activate_at']);
-                    } else {
-                        $current['activate_at'] = $data['activate_at'];
-                        $current['enabled'] = false; 
-                    }
+                                Toggle::make('rollout_now')
+                                    ->label('Apply immediately')
+                                    ->helperText('Turn off to apply the rollout when the scheduled date arrives instead.')
+                                    ->default(true),
+                            ]),
+                    ])
+                    ->action(function ($record, array $data) {
+                        $current = FeatureValue::decode($record->getRawOriginal('value') ?? 'false');
 
-                    // Variant
-                    if (empty($data['rich_value'])) {
-                        unset($current['rich_value']);
-                    } else {
-                        $current['rich_value'] = $data['rich_value'];
-                    }
-
-                    // Rollout
-                    if (!empty($data['percentage']) && !empty($data['scope_type'])) {
-                        $modelClass = ScopeConfig::modelClass($data['scope_type']);
-                        $percentage = (int) $data['percentage'];
-
-                        // Always store these so the scheduled command can use them if needed
-                        $current['percentage']  = $percentage;
-                        $current['scope_type']  = $data['scope_type'];
-
-                        $applyNow = $data['rollout_now'] ?? true;
-
-                        if ($applyNow) {
-                            $existingIds = DB::table('features')
-                                ->where('name', $record->name)
-                                ->where('scope', '!=', '__laravel_null')
-                                ->get()
-                                ->map(fn ($f) => explode('|', $f->scope)[1] ?? null)
-                                ->filter()
-                                ->toArray();
-
-                            $ids = $modelClass::whereNotIn('id', $existingIds)
-                                ->pluck('id')
-                                ->shuffle()
-                                ->take((int) ceil($modelClass::count() * $percentage / 100));
-
-                            DB::transaction(function () use ($modelClass, $ids, $record, $percentage) {
-                                foreach ($ids as $id) {
-                                    DB::table('features')->updateOrInsert(
-                                        ['name' => $record->name, 'scope' => $modelClass . '|' . $id],
-                                        [
-                                            'value' => FeatureValue::encode(
-                                                enabled: true,
-                                                meta: [
-                                                    'source'       => 'rollout',
-                                                    'percentage'   => $percentage,
-                                                    'activated_at' => now()->toDateTimeString(),
-                                                ]
-                                            ),
-                                            'created_at' => now(),
-                                            'updated_at' => now(),
-                                        ]
-                                    );
-                                }
-                            });
+                        // Schedule
+                        if (empty($data['activate_at'])) {
+                            unset($current['activate_at']);
+                        } else {
+                            $current['activate_at'] = $data['activate_at'];
+                            $current['enabled'] = false;
                         }
-                    } else {
-                        unset($current['percentage'], $current['scope_type']);
-                    }
 
-                    DB::table('features')
-                        ->where('id', $record->id)
-                        ->update(['value' => json_encode($current), 'updated_at' => now()]);
+                        // Variant
+                        if (empty($data['rich_value'])) {
+                            unset($current['rich_value']);
+                        } else {
+                            $current['rich_value'] = $data['rich_value'];
+                        }
 
-                    PennantFeature::flushCache();
+                        // Rollout
+                        if (! empty($data['percentage']) && ! empty($data['scope_type'])) {
+                            $modelClass = ScopeConfig::modelClass($data['scope_type']);
+                            $percentage = (int) $data['percentage'];
 
-                    Notification::make()->title('Settings saved')->success()->send();
-                })
-                ->modalWidth('lg'),
+                            // Always store these so the scheduled command can use them if needed
+                            $current['percentage'] = $percentage;
+                            $current['scope_type'] = $data['scope_type'];
+
+                            $applyNow = $data['rollout_now'] ?? true;
+
+                            if ($applyNow) {
+                                ScopeRollout::apply($record->name, $data['scope_type'], $percentage);
+                            }
+                        } else {
+                            unset($current['percentage'], $current['scope_type']);
+                        }
+
+                        FeatureStorage::query()
+                            ->where('id', $record->id)
+                            ->update(['value' => json_encode($current), 'updated_at' => now()]);
+
+                        PennantFeature::flushCache();
+
+                        Notification::make()->title('Settings saved')->success()->send();
+                    })
+                    ->modalWidth('lg'),
 
                 Action::make('delete')
+                    ->authorize(fn ($record) => static::canDelete($record))
                     ->label('Delete')
                     ->icon('heroicon-o-trash')
                     ->color('danger')
                     ->requiresConfirmation()
                     ->action(function ($record) {
-                        DB::table('features')
+                        FeatureStorage::query()
                             ->where('name', $record->name)
                             ->delete();
-                        
-                        PennantFeature::purge($record->name);
-                        
+
+                        PennantFeature::store(FeatureStorage::store())->purge($record->name);
+
                         Notification::make()
                             ->title('Feature deleted successfully!')
                             ->success()

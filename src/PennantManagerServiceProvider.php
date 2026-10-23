@@ -2,6 +2,9 @@
 
 namespace daacreators\PennantManager;
 
+use daacreators\PennantManager\Commands\ActivateScheduledFeatures;
+use daacreators\PennantManager\Commands\PennantManagerCommand;
+use daacreators\PennantManager\Testing\TestsPennantManager;
 use Filament\Support\Assets\Asset;
 use Filament\Support\Facades\FilamentAsset;
 use Filament\Support\Facades\FilamentIcon;
@@ -10,9 +13,6 @@ use Livewire\Features\SupportTesting\Testable;
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use daacreators\PennantManager\Commands\PennantManagerCommand;
-use daacreators\PennantManager\Testing\TestsPennantManager;
-use daacreators\PennantManager\Commands\ActivateScheduledFeatures;
 
 class PennantManagerServiceProvider extends PackageServiceProvider
 {
@@ -71,7 +71,7 @@ class PennantManagerServiceProvider extends PackageServiceProvider
         FilamentIcon::register($this->getIcons());
 
         // Handle Stubs
-        if (app()->runningInConsole()) {
+        if (app()->runningInConsole() && is_dir(__DIR__ . '/../stubs/')) {
             foreach (app(Filesystem::class)->files(__DIR__ . '/../stubs/') as $file) {
                 $this->publishes([
                     $file->getRealPath() => base_path("stubs/pennant-manager/{$file->getFilename()}"),
@@ -107,7 +107,7 @@ class PennantManagerServiceProvider extends PackageServiceProvider
     {
         return [
             PennantManagerCommand::class,
-            ActivateScheduledFeatures::class, 
+            ActivateScheduledFeatures::class,
         ];
     }
 

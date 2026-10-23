@@ -2,16 +2,32 @@
 
 namespace daacreators\PennantManager\Support;
 
+use Illuminate\Database\Eloquent\Model;
+use Laravel\Pennant\Feature;
+
 class ScopeConfig
 {
     public static function modelClass(string $type): ?string
     {
         $entry = config("pennant-manager.scope_models.{$type}");
 
-        if (is_string($entry)) return $entry;
-        if (is_array($entry))  return $entry['model'] ?? null;
+        $model = is_string($entry) ? $entry : (is_array($entry) ? ($entry['model'] ?? null) : null);
 
-        return null;
+        return is_string($model) && is_subclass_of($model, Model::class) ? $model : null;
+    }
+
+    public static function scopeKey(Model $model): string
+    {
+        return Feature::serializeScope($model);
+    }
+
+    public static function scopePrefix(string $modelClass): string
+    {
+        $model = new $modelClass;
+        // A numeric sentinel survives Eloquent's default integer primary-key cast.
+        $model->setAttribute($model->getKeyName(), 1);
+
+        return substr(static::scopeKey($model), 0, -strlen((string) $model->getKey()));
     }
 
     public static function searchColumn(string $type): string

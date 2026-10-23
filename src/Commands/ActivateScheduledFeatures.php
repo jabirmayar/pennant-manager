@@ -2,72 +2,52 @@
 
 namespace daacreators\PennantManager\Commands;
 
+use Carbon\Carbon;
+use daacreators\PennantManager\Services\ScopeRollout;
+use daacreators\PennantManager\Support\FeatureStorage;
 use daacreators\PennantManager\Support\FeatureValue;
-use daacreators\PennantManager\Support\ScopeConfig;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use Laravel\Pennant\Feature;
 
 class ActivateScheduledFeatures extends Command
 {
-    protected $signature   = 'pennant:activate-scheduled';
+    protected $signature = 'pennant:activate-scheduled';
+
     protected $description = 'Activate any features whose scheduled activation time has passed';
 
     public function handle(): void
     {
-        $features = DB::table('features')
-            ->where('scope', '__laravel_null')
-            ->whereRaw("value LIKE '{%'")
-            ->get();
-
         $activated = 0;
+        FeatureStorage::query()->where('scope', '__laravel_null')->orderBy('id')->chunkById(100, function ($features) use (&$activated) {
+            foreach ($features as $feature) {
+                try {
+                    $changed = FeatureStorage::connection()->transaction(function () use ($feature) {
+                        $current = FeatureStorage::query()->where('id', $feature->id)->lockForUpdate()->first();
+                        if (! $current) {
+                            return false;
+                        }
+                        $data = FeatureValue::decode($current->value);
+                        if (empty($data['activate_at']) || ($data['enabled'] ?? false) || now()->lt(Carbon::parse($data['activate_at']))) {
+                            return false;
+                        }
+                        if (! empty($data['percentage']) && ! empty($data['scope_type'])) {
+                            ScopeRollout::apply($current->name, $data['scope_type'], (int) $data['percentage']);
+                        }
+                        $data['enabled'] = true;
+                        FeatureStorage::query()->where('id', $current->id)->update(['value' => json_encode($data), 'updated_at' => now()]);
 
-        foreach ($features as $feature) {
-            $data = FeatureValue::decode($feature->value);
-
-            if (empty($data['activate_at']) || ($data['enabled'] ?? false)) {
-                continue;
-            }
-
-            if (now()->gte(\Carbon\Carbon::parse($data['activate_at']))) {
-                $data['enabled'] = true;
-
-                if (!empty($data['percentage']) && !empty($data['scope_type'])) {
-                    $modelClass = ScopeConfig::modelClass($data['scope_type']);
-
-                    $existingIds = DB::table('features')
-                        ->where('name', $feature->name)
-                        ->where('scope', '!=', '__laravel_null')
-                        ->get()
-                        ->map(fn ($f) => explode('|', $f->scope)[1] ?? null)
-                        ->filter()
-                        ->toArray();
-
-                    $ids = $modelClass::whereNotIn('id', $existingIds)
-                        ->pluck('id')
-                        ->shuffle()
-                        ->take((int) ceil($modelClass::count() * $data['percentage'] / 100));
-
-                    foreach ($ids as $id) {
-                        DB::table('features')->updateOrInsert(
-                            ['name' => $feature->name, 'scope' => $modelClass . '|' . $id],
-                            ['value' => FeatureValue::encode(enabled: true), 'created_at' => now(), 'updated_at' => now()]
-                        );
-                    }
+                        return true;
+                    });
+                    $activated += (int) $changed;
+                } catch (\Throwable $exception) {
+                    $this->warn("Skipped scheduled feature {$feature->name}: {$exception->getMessage()}");
+                    report($exception);
                 }
-
-                DB::table('features')
-                    ->where('id', $feature->id)
-                    ->update(['value' => json_encode($data), 'updated_at' => now()]);
-
-                $activated++;
             }
-        }
-
+        });
         if ($activated > 0) {
-            Feature::forgetCache();
+            Feature::flushCache();
         }
-
         $this->info("Activated {$activated} scheduled feature(s).");
     }
 }
