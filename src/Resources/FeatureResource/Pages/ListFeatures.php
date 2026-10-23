@@ -82,6 +82,8 @@ class ListFeatures extends ListRecords
                         ]);
                     }
 
+                    Feature::flushCache();
+
                     Notification::make()
                         ->title('Features Imported Successfully!')
                         ->success()

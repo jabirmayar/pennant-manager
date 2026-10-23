@@ -181,7 +181,7 @@ class FeatureResource extends Resource
                         }
 
                         // Variant
-                        if (empty($data['rich_value'])) {
+                        if (($data['rich_value'] ?? null) === null || $data['rich_value'] === '') {
                             unset($current['rich_value']);
                         } else {
                             $current['rich_value'] = $data['rich_value'];

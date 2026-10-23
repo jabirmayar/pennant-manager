@@ -5,6 +5,7 @@ use daacreators\PennantManager\Resources\FeatureResource;
 use daacreators\PennantManager\Resources\FeatureResource\Pages\ListFeatures;
 use daacreators\PennantManager\Resources\FeatureResource\Pages\ManageScopes;
 use daacreators\PennantManager\Support\FeatureStorage;
+use daacreators\PennantManager\Support\FeatureValue;
 use daacreators\PennantManager\Tests\Models\ScopePerson;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
@@ -81,6 +82,13 @@ it('deletes from the selected store without purging the default store', function
     Livewire::test(ListFeatures::class)->callTableAction('delete', $custom)->assertHasNoTableActionErrors();
     expect(DB::table('features')->where('name', 'managed')->exists())->toBeTrue()
         ->and(FeatureStorage::query()->where('name', 'managed')->exists())->toBeFalse();
+});
+
+it('preserves a zero-valued string variant when saving settings', function () {
+    Livewire::test(ListFeatures::class)->callTableAction('settings', $this->record, data: [
+        'activate_at' => null, 'rich_value' => '0', 'percentage' => null, 'scope_type' => null,
+    ])->assertHasNoTableActionErrors();
+    expect(FeatureValue::decode($this->record->fresh()->value)['rich_value'])->toBe('0');
 });
 
 class ReadOnlyFeaturePolicy
